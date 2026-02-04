@@ -16,11 +16,11 @@ RUN pip install --no-cache-dir -U pip setuptools wheel
 
 # Install extras while blocking flash-attn/nvidia-pyindex
 RUN pip install --no-cache-dir -e .
-# RUN pip install --no-cache-dir --no-build-isolation -e ".[p3d]"
-# RUN pip install --no-cache-dir --no-build-isolation -e ".[inference]"
+RUN pip install --no-cache-dir --no-build-isolation -e ".[p3d]"
+RUN pip install --no-cache-dir --no-build-isolation -e ".[inference]"
 
 # Hydra patch (repo requirement)
-# RUN chmod +x ./patching/hydra && ./patching/hydra
+RUN chmod +x ./patching/hydra && ./patching/hydra
 
 # Server deps
 RUN pip install --no-cache-dir fastapi uvicorn[standard] python-multipart pillow
