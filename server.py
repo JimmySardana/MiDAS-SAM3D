@@ -1,170 +1,151 @@
-# server.py
-import base64
-import io
 import os
+import time
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, Any
 
-from fastapi import FastAPI, File, Form, UploadFile, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
-from PIL import Image
-import numpy as np
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
 
-# Import sam3d-objects inference utilities (as per official quick start)
-import sys
-sys.path.append("notebook")
-from inference import Inference, load_image  # type: ignore
+# IMPORTANT: keep this import if the repo requires side effects/registrations.
+# (Some configs rely on modules being imported before Hydra instantiation.)
+import sam3d_objects  # noqa: F401
 
-APP_WORKDIR = Path(os.environ.get("SAM3D_WORKDIR", "/work")).resolve()
-CHECKPOINTS_DIR = Path(os.environ.get("SAM3D_CHECKPOINTS_DIR", "/checkpoints")).resolve()
-TAG = os.environ.get("SAM3D_TAG", "hf")
-COMPILE = os.environ.get("SAM3D_COMPILE", "0") == "1"
-
-CONFIG_PATH = CHECKPOINTS_DIR / TAG / "pipeline.yaml"
-
-app = FastAPI(title="sam3d-objects server")
-
-_infer: Optional[Inference] = None
+# If you're using your extracted core:
+# from sam3d_infer.core import Inference
+#
+# Otherwise, import the repo's inference (adjust if your path differs):
+# NOTE: importing notebook code in a server is okay if you've pruned viz out.
+from notebook.inference import Inference  # type: ignore
 
 
-def _ensure_dirs():
-    (APP_WORKDIR / "jobs").mkdir(parents=True, exist_ok=True)
+APP_NAME = "sam3d-infer"
 
 
-def _load_model():
-    global _infer
-    if _infer is not None:
-        return
-
-    if not CONFIG_PATH.exists():
-        raise RuntimeError(
-            f"pipeline.yaml not found at {CONFIG_PATH}. "
-            f"Mount checkpoints so that {CHECKPOINTS_DIR}/{TAG}/pipeline.yaml exists."
-        )
-
-    # Create inference object once (GPU heavy)
-    _infer = Inference(str(CONFIG_PATH), compile=COMPILE)
+class InferRequest(BaseModel):
+    input_path: str = Field(..., description="Path to input pointcloud/scene file inside the container")
+    prompt: str = Field(..., description="Text prompt, e.g. 'chair'")
+    output_dir: Optional[str] = Field(None, description="Directory to write outputs (defaults to /outputs)")
+    # Optional: if your Inference supports other prompt types
+    # box: Optional[list[float]] = None
+    # mask_path: Optional[str] = None
 
 
-def _read_upload_to_pil(up: UploadFile) -> Image.Image:
-    data = up.file.read()
-    if not data:
-        raise HTTPException(400, f"Empty upload: {up.filename}")
-    try:
-        img = Image.open(io.BytesIO(data))
-        img.load()
-        return img
-    except Exception as e:
-        raise HTTPException(400, f"Failed to decode image {up.filename}: {e}")
+class InferResponse(BaseModel):
+    ok: bool
+    output_path: str
+    elapsed_ms: int
+    meta: Dict[str, Any] = {}
 
 
-def _pil_mask_to_binary(mask_pil: Image.Image) -> np.ndarray:
+app = FastAPI(title=APP_NAME)
+
+_model: Optional[Inference] = None
+
+
+def _get_env_path(name: str, default: str) -> str:
+    v = os.environ.get(name, default)
+    return v
+
+
+def _load_model() -> Inference:
     """
-    Accepts:
-      - L / RGB / RGBA mask image
-    Produces:
-      - HxW bool mask where True means object.
-    Convention: non-zero alpha or non-zero luminance => object.
+    Loads your inference pipeline once.
+
+    Required env vars depend on how your Inference class is constructed.
+    Common pattern for this repo:
+      - SAM3D_CONFIG=/checkpoints/pipeline.yaml (NAS-mounted)
     """
-    if mask_pil.mode == "RGBA":
-        a = np.array(mask_pil.split()[-1])
-        return a > 0
-    if mask_pil.mode != "L":
-        mask_pil = mask_pil.convert("L")
-    m = np.array(mask_pil)
-    return m > 0
+    config_file = _get_env_path("SAM3D_CONFIG", "/checkpoints/pipeline.yaml")
+
+    if not Path(config_file).exists():
+        raise RuntimeError(f"SAM3D_CONFIG not found: {config_file}")
+
+    model = Inference(
+        config_file,
+        compile=False
+    )
+
+    return model
 
 
 @app.on_event("startup")
-def startup():
-    _ensure_dirs()
-    _load_model()
+def startup() -> None:
+    """
+    Load model at startup so /infer is fast and we fail fast if deps are missing.
+    If you prefer lazy load, comment this out and load on first request.
+    """
+    global _model
+    _model = _load_model()
 
 
 @app.get("/health")
-def health():
-    ok = CONFIG_PATH.exists()
+def health() -> Dict[str, Any]:
     return {
-        "ok": bool(ok),
-        "tag": TAG,
-        "compile": COMPILE,
-        "config_path": str(CONFIG_PATH),
-        "workdir": str(APP_WORKDIR),
+        "ok": True,
+        "model_loaded": _model is not None,
     }
 
 
-@app.post("/reconstruct")
-async def reconstruct(
-    image: UploadFile = File(...),
-    mask: UploadFile = File(...),
-    seed: int = Form(42),
-):
-    """
-    Multipart request:
-      - image: RGB(A) image (png/jpg)
-      - mask:  binary mask png (white/alpha = object)
-      - seed:  int
-    Output:
-      - saves splat.ply to /work/jobs/<job_id>/splat.ply
-      - returns {job_id, files}
-    """
-    if _infer is None:
-        _load_model()
+@app.post("/infer", response_model=InferResponse)
+def infer(req: InferRequest) -> InferResponse:
+    global _model
+    if _model is None:
+        # fallback if startup loading disabled
+        _model = _load_model()
 
-    job_id = uuid.uuid4().hex[:12]
-    job_dir = APP_WORKDIR / "jobs" / job_id
-    job_dir.mkdir(parents=True, exist_ok=True)
+    in_path = Path(req.input_path)
+    if not in_path.exists():
+        raise HTTPException(status_code=400, detail=f"input_path does not exist: {in_path}")
 
-    # Decode uploads
-    img_pil = _read_upload_to_pil(image).convert("RGBA")  # safe default
-    mask_pil = _read_upload_to_pil(mask)
+    out_dir = Path(req.output_dir or "/outputs")
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Convert to the formats inference expects
-    # In their notebooks, load_image returns an RGBA image and mask is separate.
-    # We'll pass numpy arrays; Inference in notebook code generally handles PIL/np.
-    img_rgba = np.array(img_pil)  # HxWx4 uint8
-    mask_bin = _pil_mask_to_binary(mask_pil).astype(np.uint8)  # HxW {0,1}
+    run_id = uuid.uuid4().hex[:10]
+    out_path = out_dir / f"sam3d_{run_id}.npz"
 
-    # Run model
+    t0 = time.time()
+
+    # ---- Call into your inference API here ----
+    # You MUST adapt this call to whatever your Inference class provides.
+    #
+    # Common patterns:
+    #   result = _model.run(input_path=str(in_path), prompt=req.prompt, output_path=str(out_path))
+    #   result = _model(input_path=str(in_path), prompt=req.prompt)  # then you save
+    #
+    # Below is a generic example:
     try:
-        output = _infer(img_rgba, mask_bin, seed=seed)
+        result = _model.run(
+            input_path=str(in_path),
+            prompt=req.prompt,
+            output_path=str(out_path),
+        )
+    except AttributeError:
+        # If your Inference doesn't have .run(), try a different call shape:
+        try:
+            result = _model(
+                input_path=str(in_path),
+                prompt=req.prompt,
+                output_path=str(out_path),
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Inference call failed: {type(e).__name__}: {e}")
     except Exception as e:
-        raise HTTPException(500, f"Inference failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Inference failed: {type(e).__name__}: {e}")
 
-    # Save gaussian splat ply (matches quick start)
-    # output["gs"] is expected to have save_ply
-    files = []
-    try:
-        ply_path = job_dir / "splat.ply"
-        output["gs"].save_ply(str(ply_path))
-        files.append("splat.ply")
-    except Exception as e:
-        raise HTTPException(500, f"Failed to save ply: {e}")
+    elapsed_ms = int((time.time() - t0) * 1000)
 
-    # Optional: save debug inputs
-    try:
-        img_pil.save(job_dir / "input.png")
-        Image.fromarray(mask_bin * 255).convert("L").save(job_dir / "mask.png")
-        files += ["input.png", "mask.png"]
-    except Exception:
-        pass
+    # Keep response stable even if result is None / complex
+    meta: Dict[str, Any] = {}
+    if isinstance(result, dict):
+        # shallow copy only JSON-ish things
+        for k, v in result.items():
+            if isinstance(v, (str, int, float, bool, type(None))):
+                meta[k] = v
 
-    return JSONResponse(
-        {
-            "ok": True,
-            "job_id": job_id,
-            "files": files,
-            "download_base": f"/download/{job_id}",
-        }
-    )
+    if not out_path.exists():
+        # Some implementations write different files. If so, return what you actually wrote.
+        # Still treat this as a test failure.
+        raise HTTPException(status_code=500, detail=f"Expected output not created at: {out_path}")
 
-
-@app.get("/download/{job_id}/{filename}")
-def download(job_id: str, filename: str):
-    p = (APP_WORKDIR / "jobs" / job_id / filename).resolve()
-    if not str(p).startswith(str((APP_WORKDIR / "jobs").resolve())):
-        raise HTTPException(400, "Invalid path")
-    if not p.exists():
-        raise HTTPException(404, "Not found")
-    return FileResponse(str(p), filename=filename)
+    return InferResponse(ok=True, output_path=str(out_path), elapsed_ms=elapsed_ms, meta=meta)

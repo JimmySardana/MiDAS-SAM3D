@@ -1,29 +1,14 @@
-[build-system]
-requires = ["hatchling", "hatch-requirements-txt"]
-build-backend = "hatchling.build"
-
-[tool.hatch.envs.default.env-vars]
-PIP_EXTRA_INDEX_URL = "https://pypi.ngc.nvidia.com https://download.pytorch.org/whl/cu121"
-
-[tool.hatch.metadata]
-# for git-referenced dependencies
-allow-direct-references = true
-
 [project]
 name = "sam3d_objects"
 version = "0.0.1"
-# required for "hatch-requirements-txt" to work
-dynamic = ["dependencies", "optional-dependencies"]
+dependencies = ["gsplat", "spconv-cu121", "loguru", "timm", "matplotlib", "open3d", "trimesh", "optree", "astor", "easydict", "opencv-python", "scipy", "plyfile", "xatlas", "igraph", "pymeshfix"]
 
-[tool.hatch.build]
-ignore-vcs = true
-include = ["**/*.py"]
-exclude = ["conftest.py", "*_test.py"]
-packages = ["sam3d_objects"]
+[tool.setuptools.packages.find]
+include = ["sam3d_objects"]
 
-[tool.hatch.metadata.hooks.requirements_txt]
-files = ["requirements.txt"]
-
-[tool.hatch.metadata.hooks.requirements_txt.optional-dependencies]
-p3d = ["requirements.p3d.txt"]
-inference = ["requirements.inference.txt"]
+[project.optional-dependencies]
+server = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "pydantic>=2",
+]
