@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional, Dict, Any
 
 from fastapi import FastAPI, HTTPException
+from inference import Inference
 from pydantic import BaseModel, Field
 
 # IMPORTANT: keep this import if the repo requires side effects/registrations.
@@ -16,7 +17,6 @@ import sam3d_objects  # noqa: F401
 #
 # Otherwise, import the repo's inference (adjust if your path differs):
 # NOTE: importing notebook code in a server is okay if you've pruned viz out.
-from notebook.inference import Inference  # type: ignore
 
 
 APP_NAME = "sam3d-infer"

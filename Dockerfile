@@ -36,14 +36,15 @@ RUN --mount=type=cache,target=/opt/conda/pkgs \
 ENV PATH=/opt/conda/envs/sam3d/bin:$PATH
 
 # ---- App layer (changes often) ----
-COPY sam3d_objects/ sam3d_objects/
-COPY notebook/ notebook/
 COPY pyproject.toml pyproject.toml
-COPY server.py server.py
 
 # Install your package without re-resolving deps (keep pyproject deps empty/minimal)
 RUN /opt/conda/envs/sam3d/bin/pip install --no-cache-dir -e ".[server]"
 # RUN pip install -e ".[server]"
+
+COPY sam3d_objects/ sam3d_objects/
+COPY server.py server.py
+COPY inference.py inference.py
 
 EXPOSE 8000
 
