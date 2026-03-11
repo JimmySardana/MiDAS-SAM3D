@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=sam3d-cluster
 #SBATCH --gpus-per-node=1
-#SBATCH --cpus-per-gpu=20
-#SBATCH --mem=64G
+#SBATCH --cpus-per-gpu=40
+#SBATCH --mem=128G
 #SBATCH --time=00:60:00
 #SBATCH --output=slurm-%x-%j.out
 #SBATCH --error=slurm-%x-%j.err
@@ -25,7 +25,7 @@ LOGIN_PORT=18000
 
 CONTAINER_NAME="${IMAGE_NAME}-${SLURM_JOB_ID}"
 DATAPATH="/opt/cache/sardana/"
-CONFIG_PATH="${DATAPATH}/sam3_checkpoint/sam3.pt"
+CONFIG_PATH="${DATAPATH}/sam3d_checkpoint/pipeline.yaml"
 
 # ---------------- HELPERS ----------------
 log() { echo "[$(date +'%F %T')] $*"; }
@@ -79,7 +79,7 @@ log "Reverse tunnel target: ${LOGIN_HOST}:${LOGIN_PORT} -> ${HOST_BIND_IP}:${HOS
 
 
 # ---------------- COPY FROM NAS ----------------
-if test ! -d $DATAPATH/sam3_checkpoint ; then
+if test ! -d $DATAPATH/sam3d_checkpoint ; then
     # mount NAS
     gio_mount_nas
  
@@ -87,7 +87,7 @@ if test ! -d $DATAPATH/sam3_checkpoint ; then
     cd $DATAPATH
     # copy necessary data
     gio copy --progress smb://pc3163/nobackup/spool/sam3d_checkpoint.zip $DATAPATH
-    unzip -q sam3_checkpoint.zip -d sam3_checkpoint
+    unzip -q sam3d_checkpoint.zip -d sam3d_checkpoint
 fi
  
 # ---------------- RUN DOCKER IMAGE ----------------
@@ -95,8 +95,8 @@ log "Starting container in background..."
 rootless-docker run --gpus all \
     --name "$CONTAINER_NAME" \
     -p "${HOST_BIND_IP}:${HOST_PORT}:${CONTAINER_PORT}" \
-    -e SAM3_CHECKPOINT_PATH="/models/sam3.pt" \
-    -v "${CONFIG_PATH}:/models/sam3.pt" \
+    -e SAM3D_CONFIG="/checkpoints/pipeline.yaml" \
+    -v "${CONFIG_PATH}:/checkpoints/pipeline.yaml" \
     "$IMAGE" &
 DOCKER_PID=$!
 log "Container started (docker pid=$DOCKER_PID)"

@@ -32,6 +32,11 @@ RUN --mount=type=cache,target=/opt/conda/pkgs \
     mamba env create -f /app/environment.yml -p /opt/conda/envs/sam3d \
     && conda clean -afy
 
+RUN /opt/conda/envs/sam3d/bin/python -c "import torch; print(torch.__version__, '::',torch.version.cuda)"
+ENV CUDA_HOME=/usr/local/cuda
+RUN --mount=type=cache,target=/root/.cache/pip \
+    conda run -p /opt/conda/envs/sam3d pip install flash-attn --only-binary=:all: --no-build-isolation
+
 # Make the env the default python
 ENV PATH=/opt/conda/envs/sam3d/bin:$PATH
 
