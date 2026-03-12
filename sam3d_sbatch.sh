@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=sam3d-cluster
 #SBATCH --gpus-per-node=1
-#SBATCH --cpus-per-gpu=40
+#SBATCH --cpus-per-gpu=64
 #SBATCH --mem=128G
 #SBATCH --time=00:60:00
 #SBATCH --output=slurm-%x-%j.out

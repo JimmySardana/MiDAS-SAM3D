@@ -1,4 +1,5 @@
 # Copyright (c) Meta Platforms, Inc. and affiliates.
+import io
 import os
 
 # not ideal to put that here
@@ -135,15 +136,15 @@ def check_hydra_safety(
             to_check.extend(list(node))
 
 
-def load_image(path):
-    image = Image.open(path)
+def load_image(data):
+    image = Image.open(io.BytesIO(data)).convert("RGBA")
     image = np.array(image)
     image = image.astype(np.uint8)
     return image
 
 
-def load_mask(path):
-    mask = load_image(path)
+def load_mask(data):
+    mask = load_image(data)
     mask = mask > 0
     if mask.ndim == 3:
         mask = mask[..., -1]

@@ -1,11 +1,10 @@
 import os
-import time
-import uuid
+import trimesh
 from pathlib import Path
 from typing import Optional, Dict, Any
 
-from fastapi import FastAPI, HTTPException
-from inference import Inference
+from fastapi import FastAPI, File, HTTPException, Response, UploadFile
+from inference import Inference, load_image, load_mask
 from pydantic import BaseModel, Field
 
 # IMPORTANT: keep this import if the repo requires side effects/registrations.
@@ -20,22 +19,6 @@ import sam3d_objects  # noqa: F401
 
 
 APP_NAME = "sam3d-infer"
-
-
-class InferRequest(BaseModel):
-    input_path: str = Field(..., description="Path to input pointcloud/scene file inside the container")
-    prompt: str = Field(..., description="Text prompt, e.g. 'chair'")
-    output_dir: Optional[str] = Field(None, description="Directory to write outputs (defaults to /outputs)")
-    # Optional: if your Inference supports other prompt types
-    # box: Optional[list[float]] = None
-    # mask_path: Optional[str] = None
-
-
-class InferResponse(BaseModel):
-    ok: bool
-    output_path: str
-    elapsed_ms: int
-    meta: Dict[str, Any] = {}
 
 
 app = FastAPI(title=APP_NAME)
@@ -86,66 +69,40 @@ def health() -> Dict[str, Any]:
         "model_loaded": _model is not None,
     }
 
-
-@app.post("/infer", response_model=InferResponse)
-def infer(req: InferRequest) -> InferResponse:
+@app.post("/infer/glb")
+async def infer_glb(
+    image: UploadFile = File(...),
+    mask: UploadFile = File(...),
+):
     global _model
     if _model is None:
-        # fallback if startup loading disabled
         _model = _load_model()
 
-    in_path = Path(req.input_path)
-    if not in_path.exists():
-        raise HTTPException(status_code=400, detail=f"input_path does not exist: {in_path}")
+    image_np = load_image(await image.read())
+    mask_np = load_mask(await mask.read())
 
-    out_dir = Path(req.output_dir or "/outputs")
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    run_id = uuid.uuid4().hex[:10]
-    out_path = out_dir / f"sam3d_{run_id}.npz"
-
-    t0 = time.time()
-
-    # ---- Call into your inference API here ----
-    # You MUST adapt this call to whatever your Inference class provides.
-    #
-    # Common patterns:
-    #   result = _model.run(input_path=str(in_path), prompt=req.prompt, output_path=str(out_path))
-    #   result = _model(input_path=str(in_path), prompt=req.prompt)  # then you save
-    #
-    # Below is a generic example:
     try:
-        result = _model.run(
-            input_path=str(in_path),
-            prompt=req.prompt,
-            output_path=str(out_path),
-        )
-    except AttributeError:
-        # If your Inference doesn't have .run(), try a different call shape:
-        try:
-            result = _model(
-                input_path=str(in_path),
-                prompt=req.prompt,
-                output_path=str(out_path),
-            )
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Inference call failed: {type(e).__name__}: {e}")
+        output = _model(image_np, mask_np, seed=42)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Inference failed: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail=f"Inference failed: {e}") from e
 
-    elapsed_ms = int((time.time() - t0) * 1000)
+    glb_bytes = extract_glb_bytes(output["glb"])
 
-    # Keep response stable even if result is None / complex
-    meta: Dict[str, Any] = {}
-    if isinstance(result, dict):
-        # shallow copy only JSON-ish things
-        for k, v in result.items():
-            if isinstance(v, (str, int, float, bool, type(None))):
-                meta[k] = v
+    return Response(
+        content=glb_bytes,
+        media_type="model/gltf-binary",
+        headers={"Content-Disposition": 'attachment; filename="result.glb"'},
+    )
 
-    if not out_path.exists():
-        # Some implementations write different files. If so, return what you actually wrote.
-        # Still treat this as a test failure.
-        raise HTTPException(status_code=500, detail=f"Expected output not created at: {out_path}")
+def extract_glb_bytes(glb: trimesh.Trimesh) -> bytes:
+    if glb is None:
+        raise HTTPException(
+            status_code=500,
+            detail=f"No trimesh/GLB object found in output.",
+        )
 
-    return InferResponse(ok=True, output_path=str(out_path), elapsed_ms=elapsed_ms, meta=meta)
+    try:
+        glb_bytes = glb.export(file_type="glb")
+        return glb_bytes
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to export GLB: {e}") from e
