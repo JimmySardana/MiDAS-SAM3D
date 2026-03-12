@@ -32,11 +32,6 @@ RUN --mount=type=cache,target=/opt/conda/pkgs \
     mamba env create -f /app/environment.yml -p /opt/conda/envs/sam3d \
     && conda clean -afy
 
-RUN /opt/conda/envs/sam3d/bin/python -c "import torch; print(torch.__version__, '::',torch.version.cuda)"
-ENV CUDA_HOME=/usr/local/cuda
-RUN --mount=type=cache,target=/root/.cache/pip \
-    conda run -p /opt/conda/envs/sam3d pip install flash-attn --only-binary=:all: --no-build-isolation
-
 # Make the env the default python
 ENV PATH=/opt/conda/envs/sam3d/bin:$PATH
 
@@ -47,15 +42,18 @@ COPY pyproject.toml pyproject.toml
 RUN /opt/conda/envs/sam3d/bin/pip install --no-cache-dir -e ".[server]"
 # RUN pip install -e ".[server]"
 
-COPY sam3d_objects/ sam3d_objects/
 COPY server.py server.py
 COPY inference.py inference.py
+COPY sam3d_objects/ sam3d_objects/
 
 EXPOSE 8000
 
 # These should be mounted from NAS at runtime
 ENV SAM3D_CONFIG="/checkpoints/pipeline.yaml"
 ENV LIDRA_SKIP_INIT=1
+ENV SPARSE_ATTN_BACKEND="sdpa"
+ENV ATTN_BACKEND="sdpa"
+ENV SAM3D_CONFIG="/checkpoints/pipeline.yaml"
 
 CMD ["conda", "run", "--no-capture-output", "-p", "/opt/conda/envs/sam3d", \
      "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]

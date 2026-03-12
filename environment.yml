@@ -6,20 +6,16 @@ channels:
   - pytorch3d
   - defaults
 channel_priority: strict
+
 dependencies:
   - python=3.10
   - pip
   - numpy
   - pyyaml
-
-  # CUDA torch from conda
-  - pytorch=2.5.*
+  - pytorch=2.5.1
   - pytorch-cuda=12.1
-
-  # Must match the torch/cuda above
   - pytorch3d
   - kaolin
-
   - pip:
       - hydra-core
       - omegaconf

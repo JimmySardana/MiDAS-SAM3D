@@ -23,7 +23,7 @@ def __from_env():
         "naive",
     ]:
         BACKEND = env_attn_backend
-    # BACKEND = "sdpa"
+    BACKEND = "sdpa"
     if env_sttn_debug is not None:
         DEBUG = env_sttn_debug == "1"
 

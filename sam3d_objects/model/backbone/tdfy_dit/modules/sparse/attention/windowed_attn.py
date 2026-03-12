@@ -7,8 +7,6 @@ from .. import DEBUG, ATTN
 
 if ATTN == "xformers":
     import xformers.ops as xops
-elif ATTN == "flash_attn":
-    import flash_attn
 elif ATTN == "sdpa":
     from torch.nn.functional import scaled_dot_product_attention as sdpa
     from .masked_sdpa import masked_sdpa

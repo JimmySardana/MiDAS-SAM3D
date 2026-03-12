@@ -6,8 +6,6 @@ from . import DEBUG, BACKEND
 
 if BACKEND == "xformers":
     import xformers.ops as xops
-elif BACKEND == "flash_attn":
-    import flash_attn
 elif BACKEND == "torch_flash_attn":
     pass
 elif BACKEND == "sdpa":

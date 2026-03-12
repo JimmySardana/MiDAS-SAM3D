@@ -25,7 +25,7 @@ LOGIN_PORT=18000
 
 CONTAINER_NAME="${IMAGE_NAME}-${SLURM_JOB_ID}"
 DATAPATH="/opt/cache/sardana/"
-CONFIG_PATH="${DATAPATH}/sam3d_checkpoint/pipeline.yaml"
+CONFIG_PATH="${DATAPATH}/sam3d_checkpoint"
 
 # ---------------- HELPERS ----------------
 log() { echo "[$(date +'%F %T')] $*"; }
@@ -96,7 +96,7 @@ rootless-docker run --gpus all \
     --name "$CONTAINER_NAME" \
     -p "${HOST_BIND_IP}:${HOST_PORT}:${CONTAINER_PORT}" \
     -e SAM3D_CONFIG="/checkpoints/pipeline.yaml" \
-    -v "${CONFIG_PATH}:/checkpoints/pipeline.yaml" \
+    -v "${CONFIG_PATH}:/checkpoints" \
     "$IMAGE" &
 DOCKER_PID=$!
 log "Container started (docker pid=$DOCKER_PID)"
