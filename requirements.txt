@@ -1,0 +1,34 @@
+# Core inference
+hydra-core
+omegaconf
+tqdm
+loguru
+timm
+scipy
+trimesh
+plyfile
+opencv-python
+optree
+easydict
+
+# CUDA-specific
+gsplat
+spconv-cu121
+
+# MoGe (pin the commit)
+MoGe@git+https://github.com/microsoft/MoGe.git@a8c37341bc0325ca99b9d57981cc3bb2bd3e255b
+
+# Server
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2
+
+# Only include if actually used in inference:
+pyvista
+lightning
+open3d
+matplotlib
+igraph
+pymeshfix
+xatlas
+astor

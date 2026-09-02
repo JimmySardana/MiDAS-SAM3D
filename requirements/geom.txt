@@ -1,2 +1,0 @@
-pytorch3d
-kaolin
