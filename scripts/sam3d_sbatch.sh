@@ -13,7 +13,7 @@ IMAGE_NAME="sam3d"
 IMAGE="pc3163.igd.fraunhofer.de:4567/${IMAGE_NAME}"
 
 LOGIN_HOST="amperecontrol1"
-LOGIN_USER="sardana"
+LOGIN_USER="ldapUser"
 SSH_KEY="${HOME}/.ssh/id_ed25519_cluster"   # must work without password
 
 CONTAINER_PORT=8000                          # port inside container
@@ -24,7 +24,7 @@ HOST_PORT=8000                               # port on compute node
 LOGIN_PORT=18000
 
 CONTAINER_NAME="${IMAGE_NAME}-${SLURM_JOB_ID}"
-DATAPATH="/opt/cache/sardana/"
+DATAPATH="/opt/cache/ldapUser/"
 CONFIG_PATH="${DATAPATH}/sam3d_checkpoint"
 
 # ---------------- HELPERS ----------------
